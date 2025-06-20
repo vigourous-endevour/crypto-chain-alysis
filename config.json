@@ -1,0 +1,21 @@
+{
+  "ethereum": {
+    "rpc_url": "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+  },
+  "base": {
+    "rpc_url": "https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+  },
+  "solana": {
+    "rpc_url": "https://api.mainnet-beta.solana.com"
+  },
+  "db_path": "token_launches.db",
+  "alerts": {
+    "discord_webhook": "",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "email_smtp_server": "",
+    "email_username": "",
+    "email_password": "",
+    "email_recipients": []
+  }
+}
