@@ -1,0 +1,67 @@
+{
+  "ethereum": {
+    "rpc_url": "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_API_KEY",
+    "etherscan_api_key": "YOUR_ETHERSCAN_API_KEY"
+  },
+  "base": {
+    "rpc_url": "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_API_KEY",
+    "etherscan_api_key": "YOUR_BASESCAN_API_KEY"
+  },
+  "solana": {
+    "rpc_url": "https://api.mainnet-beta.solana.com"
+  },
+  "etherscan": {
+    "enabled": true,
+    "rate_limit_delay": 0.2,
+    "max_retries": 3,
+    "networks": {
+      "ethereum": {
+        "api_key": "YOUR_ETHERSCAN_API_KEY",
+        "base_url": "https://api.etherscan.io/api"
+      },
+      "base": {
+        "api_key": "YOUR_BASESCAN_API_KEY",
+        "base_url": "https://api.basescan.org/api"
+      },
+      "goerli": {
+        "api_key": "YOUR_ETHERSCAN_API_KEY",
+        "base_url": "https://api-goerli.etherscan.io/api"
+      },
+      "sepolia": {
+        "api_key": "YOUR_ETHERSCAN_API_KEY",
+        "base_url": "https://api-sepolia.etherscan.io/api"
+      }
+    }
+  },
+  "db_path": "token_launches_enhanced.db",
+  "alerts": {
+    "discord_webhook": "",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "email_smtp_server": "",
+    "email_username": "",
+    "email_password": "",
+    "email_recipients": [],
+    "etherscan_verification_failed": true,
+    "creator_reputation_threshold": 30,
+    "transfer_pattern_anomalies": true,
+    "proxy_contract_detected": true,
+    "dangerous_functions_found": true
+  },
+  "analysis": {
+    "enable_etherscan_verification": true,
+    "enable_source_code_analysis": true,
+    "enable_creator_reputation_check": true,
+    "enable_transfer_pattern_analysis": true,
+    "min_holders_for_analysis": 5,
+    "max_transfer_history": 1000,
+    "cache_verification_results": true,
+    "cache_duration_hours": 24
+  },
+  "performance": {
+    "max_concurrent_requests": 10,
+    "request_timeout_seconds": 30,
+    "retry_failed_requests": true,
+    "use_connection_pooling": true
+  }
+}
