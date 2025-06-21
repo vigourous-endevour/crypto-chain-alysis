@@ -480,108 +480,152 @@ class EnhancedTokenMonitor:
     
     async def is_actual_token(self, web3, contract_address):
         """
-        Check if a contract is actually a tradeable token (not just any contract)
+        STRICTER check if a contract is actually a tradeable token
         """
         try:
             # Get contract code
             code = web3.eth.get_code(contract_address)
             code_hex = code.hex()
             
-            # Check for ERC20 function signatures
-            erc20_signatures = {
-                '0x70a08231': 'balanceOf(address)',
-                '0xa9059cbb': 'transfer(address,uint256)', 
-                '0x095ea7b3': 'approve(address,uint256)',
-                '0xdd62ed3e': 'allowance(address,address)',
-                '0x18160ddd': 'totalSupply()',
-                '0x06fdde03': 'name()',
-                '0x95d89b41': 'symbol()',
-                '0x313ce567': 'decimals()'
+            # Must have substantial code (not just a proxy)
+            if len(code_hex) < 1000:  # Very small contracts are usually proxies/minimal
+                return False, f"Contract too small ({len(code_hex)} chars) - likely proxy/minimal"
+            
+            # Check for ERC20 function signatures (more strict)
+            required_functions = {
+                '18160ddd': 'totalSupply()',      # Must have
+                '70a08231': 'balanceOf(address)', # Must have  
+                'a9059cbb': 'transfer(address,uint256)',  # Must have
+                '095ea7b3': 'approve(address,uint256)',   # Must have
+                '06fdde03': 'name()',             # Must have
+                '95d89b41': 'symbol()',           # Must have
+                '313ce567': 'decimals()'          # Must have
             }
             
-            # Count how many ERC20 functions are present
-            erc20_functions_found = 0
-            for sig in erc20_signatures.keys():
-                if sig[2:] in code_hex:  # Remove '0x' prefix
-                    erc20_functions_found += 1
+            # ALL core functions must be present
+            missing_functions = []
+            for sig, name in required_functions.items():
+                if sig not in code_hex:
+                    missing_functions.append(name)
             
-            # Must have at least 6 core ERC20 functions to be considered a token
-            if erc20_functions_found < 6:
-                return False, f"Only {erc20_functions_found}/8 ERC20 functions found"
+            if missing_functions:
+                return False, f"Missing ERC20 functions: {', '.join(missing_functions[:3])}"
             
-            # Try to call basic ERC20 functions to verify they work
+            # Try to actually CALL the functions to verify they work
             try:
-                # Try to get total supply
-                total_supply_call = web3.eth.call({
+                # Call totalSupply() - must return valid data
+                total_supply_result = web3.eth.call({
                     'to': contract_address,
-                    'data': '0x18160ddd'  # totalSupply()
+                    'data': '0x18160ddd'
                 })
+                if len(total_supply_result) != 32:  # Should return 32-byte uint256
+                    return False, "totalSupply() call returned invalid data"
                 
-                # Try to get decimals
-                decimals_call = web3.eth.call({
+                total_supply = int.from_bytes(total_supply_result, byteorder='big')
+                if total_supply == 0:
+                    return False, "Total supply is zero"
+                if total_supply > 10**30:  # Unreasonably large
+                    return False, f"Total supply too large: {total_supply}"
+                
+                # Call decimals() - must return reasonable value
+                decimals_result = web3.eth.call({
                     'to': contract_address,
-                    'data': '0x313ce567'  # decimals()
+                    'data': '0x313ce567'
                 })
+                if len(decimals_result) != 32:
+                    return False, "decimals() call returned invalid data"
                 
-                # If both calls succeed, likely a real token
-                if len(total_supply_call) > 0 and len(decimals_call) > 0:
-                    return True, f"Valid ERC20 token ({erc20_functions_found}/8 functions)"
+                decimals = int.from_bytes(decimals_result, byteorder='big')
+                if decimals > 30:  # Most tokens have 0-18 decimals
+                    return False, f"Unreasonable decimals: {decimals}"
+                
+                # Call name() - must return some data
+                name_result = web3.eth.call({
+                    'to': contract_address,
+                    'data': '0x06fdde03'
+                })
+                if len(name_result) < 64:  # String responses should be at least 64 bytes
+                    return False, "name() call returned insufficient data"
+                
+                # Call symbol() - must return some data  
+                symbol_result = web3.eth.call({
+                    'to': contract_address,
+                    'data': '0x95d89b41'
+                })
+                if len(symbol_result) < 64:
+                    return False, "symbol() call returned insufficient data"
+                
+                # Try a balance check for zero address (should work without error)
+                balance_result = web3.eth.call({
+                    'to': contract_address,
+                    'data': '0x70a08231000000000000000000000000' + '0' * 24  # balanceOf(0x0)
+                })
+                if len(balance_result) != 32:
+                    return False, "balanceOf() call returned invalid data"
+                
+                # All checks passed!
+                return True, f"Valid ERC20 token (supply: {total_supply:,}, decimals: {decimals})"
                 
             except Exception as e:
-                return False, f"ERC20 function calls failed: {str(e)[:50]}"
-            
-            return False, "Failed ERC20 function verification"
-            
+                return False, f"ERC20 function calls failed: {str(e)[:100]}"
+                
         except Exception as e:
-            return False, f"Contract analysis failed: {str(e)[:50]}"
+            return False, f"Contract analysis failed: {str(e)[:100]}"
 
     async def get_token_info(self, web3, contract_address):
         """
-        Get actual token name, symbol, and decimals
+        Get actual token name, symbol, and decimals with better parsing
         """
         try:
-            # Try to get name
+            # Get name with better string decoding
             name = "Unknown"
             try:
-                name_call = web3.eth.call({
+                name_result = web3.eth.call({
                     'to': contract_address,
-                    'data': '0x06fdde03'  # name()
+                    'data': '0x06fdde03'
                 })
-                if len(name_call) > 32:
-                    # Decode string (simplified)
-                    name_bytes = name_call[64:]  # Skip length data
-                    name = name_bytes.decode('utf-8', errors='ignore').strip('\x00')
-                    if not name or len(name) < 2:
-                        name = f"Token_{contract_address[2:8]}"
+                if len(name_result) >= 64:
+                    # Parse ABI-encoded string
+                    offset = int.from_bytes(name_result[:32], byteorder='big')
+                    if offset == 32:  # Standard string encoding
+                        length = int.from_bytes(name_result[32:64], byteorder='big')
+                        if length > 0 and length < 100:  # Reasonable length
+                            name_bytes = name_result[64:64+length]
+                            name = name_bytes.decode('utf-8', errors='ignore').strip('\x00 ')
+                            if len(name) < 2 or not name.replace(' ', '').isalnum():
+                                name = f"Token_{contract_address[2:8]}"
             except:
                 name = f"Token_{contract_address[2:8]}"
             
-            # Try to get symbol
+            # Get symbol with better parsing
             symbol = "UNK"
             try:
-                symbol_call = web3.eth.call({
+                symbol_result = web3.eth.call({
                     'to': contract_address,
-                    'data': '0x95d89b41'  # symbol()
+                    'data': '0x95d89b41'
                 })
-                if len(symbol_call) > 32:
-                    # Decode string (simplified)
-                    symbol_bytes = symbol_call[64:]  # Skip length data
-                    symbol = symbol_bytes.decode('utf-8', errors='ignore').strip('\x00')
-                    if not symbol or len(symbol) < 1:
-                        symbol = f"T{contract_address[2:6].upper()}"
+                if len(symbol_result) >= 64:
+                    offset = int.from_bytes(symbol_result[:32], byteorder='big')
+                    if offset == 32:
+                        length = int.from_bytes(symbol_result[32:64], byteorder='big')
+                        if length > 0 and length < 20:  # Symbols are usually short
+                            symbol_bytes = symbol_result[64:64+length]
+                            symbol = symbol_bytes.decode('utf-8', errors='ignore').strip('\x00 ')
+                            if len(symbol) < 1 or not symbol.replace('_', '').isalnum():
+                                symbol = f"T{contract_address[2:6].upper()}"
             except:
                 symbol = f"T{contract_address[2:6].upper()}"
             
-            # Try to get decimals
-            decimals = 18  # Default
+            # Get decimals
+            decimals = 18
             try:
-                decimals_call = web3.eth.call({
+                decimals_result = web3.eth.call({
                     'to': contract_address,
-                    'data': '0x313ce567'  # decimals()
+                    'data': '0x313ce567'
                 })
-                if len(decimals_call) == 32:
-                    decimals = int.from_bytes(decimals_call, byteorder='big')
-                    if decimals > 50:  # Sanity check
+                if len(decimals_result) == 32:
+                    decimals = int.from_bytes(decimals_result, byteorder='big')
+                    if decimals > 30:
                         decimals = 18
             except:
                 decimals = 18
